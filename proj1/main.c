@@ -76,6 +76,13 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+/**
+ * Sets the global argument flags based on the cli
+ * arguments of the program
+ * 
+ * @param argv the array of strings passed as an argument to main()
+ * @return 0 if the parsing was successful, not 0 otherwise
+ */
 int parseArgs(char** argv)
 {
 	path = argv[1];
@@ -123,12 +130,24 @@ int parseArgs(char** argv)
 	return 0;
 }
 
+/**
+ * Prints the program usage
+ */
 void printUsage()
 {
 	printf("Usage: sfind directory [-name string|-type c|-perm mode] [-print|-delete|-exec command]\n");
 	return;
 }
 
+/**
+ * Analyzes recursively all directories reachable
+ * by the path argument, launching a new process
+ * for each new directory and scanning each directory's
+ * files according to the global argument flags
+ * 
+ * @param path the path to the parent directory
+ * @return 0 if the directory was successfully read, not 0 otherwise
+ */
 int analyzeDirectory(char* path)
 {
 	DIR* dir;
@@ -178,6 +197,12 @@ int analyzeDirectory(char* path)
 	return 0;
 }
 
+/**
+ * Analyzes all the files of a single directory based
+ * on the name, type and perm global arguments
+ * 
+ * @param path the path to the directory
+ */
 void analyzeFiles(char* path)
 {
 	DIR* dir;
@@ -231,6 +256,12 @@ void analyzeFiles(char* path)
 	return;
 }
 
+/**
+ * Processes a single file, based on the print,
+ * delete and exec global arguments
+ * 
+ * @param path the path to the file
+ */
 void processFile(char* path)
 {
 	if (printFlag)
