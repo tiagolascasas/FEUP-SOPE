@@ -1,11 +1,13 @@
+#include <dirent.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <dirent.h>
 #include <unistd.h>
-#include <limits.h>
 
 #define OCTAL 8
 
@@ -22,8 +24,11 @@ char* filename;
 char type;
 int perm;
 char** execCommand;
+char** filesFound;
+int idx;
 
 void printUsage();
+int parseArgs(char** argv);
 int analyzeDirectory(char* path);
 void analyzeFiles(char* path);
 void processFile(char* path);
@@ -36,6 +41,43 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
+	if (parseArgs(argv) != 0)
+		return 2;
+
+	if (execFlag)
+	{
+		filesFound = (char**)calloc(sizeof(char*), 256);
+		filesFound[0] = execCommand[0];
+		filesFound[1] = execCommand[1];
+		idx = 2;
+	}
+
+	analyzeDirectory(argv[1]);
+
+	if (execFlag)
+	{
+		int i = 1;
+		while (execCommand[i] != NULL)
+		{
+			filesFound[idx] = execCommand[i];
+			idx++;
+			i++;
+		}
+		pid_t p = fork();
+		if (p == 0)
+			execvp(execCommand[0], filesFound);
+		else
+		{
+			int status;
+			waitpid(p, &status, 0);
+		}
+	}
+
+	return 0;
+}
+
+int parseArgs(char** argv)
+{
 	path = argv[1];
 
 	if (strcmp(argv[2], "-name") == 0)
@@ -52,6 +94,7 @@ int main(int argc, char** argv)
 	{
 		permFlag = 1;
 		perm = strtol(argv[3], NULL, OCTAL);
+		printf("perm: %d\n", perm);
 	}
 	else
 	{
@@ -77,9 +120,6 @@ int main(int argc, char** argv)
 		printUsage();
 		return 3;
 	}
-
-	analyzeDirectory(argv[1]);
-
 	return 0;
 }
 
@@ -178,7 +218,11 @@ void analyzeFiles(char* path)
 			}
 			else if (permFlag)
 			{
-			//	if (entry->)
+				sprintf(filepath, "%s/%s", path, entry->d_name);
+				struct stat st;
+				stat(filepath, &st);
+				if ((st.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)) == perm)
+					processFile(filepath);
 			}
 			else continue;
 		}
@@ -195,7 +239,10 @@ void processFile(char* path)
 		remove(path);
 	else if (execFlag)
 	{
-
+		char* heapPath = (char*)calloc(sizeof(char*), strlen(path) + 1);
+		strcpy(heapPath, path);
+		filesFound[idx] = heapPath;
+		idx++;
 	}
 	return;
 }
