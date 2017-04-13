@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #include <unistd.h>
 
 #define OCTAL 8
+#define MODE 0770
 
 int nameFlag = 0;
 int typeFlag = 0;
@@ -24,17 +26,24 @@ char* filename;
 char type;
 int perm;
 char** execCommand;
-char** filesFound;
 int idx;
+int filedes;
 
 void printUsage();
 int parseArgs(char** argv);
 int analyzeDirectory(char* path);
 void analyzeFiles(char* path);
 void processFile(char* path);
+int readline(int fd, char *str);
+
+void sigint_parent_handler(int signo);
+void sigint_child_handler(int signo);
+void sigusr1_handler(int signo);
 
 int main(int argc, char** argv)
 {
+	signal(SIGINT, sigint_parent_handler);
+	signal(SIGUSR1, sigusr1_handler);
 	if (argc < 5)
 	{
 		printUsage();
@@ -46,40 +55,61 @@ int main(int argc, char** argv)
 
 	if (execFlag)
 	{
-		filesFound = (char**)calloc(sizeof(char*), 256);
-		filesFound[0] = execCommand[0];
-		filesFound[1] = execCommand[1];
-		idx = 2;
+		filedes = open("files.txt", O_RDWR | O_CREAT, MODE);
+
+		close(filedes);
 	}
 
 	analyzeDirectory(argv[1]);
 
 	if (execFlag)
 	{
-		int i = 1;
-		while (execCommand[i] != NULL)
+		char** exec = (char**)calloc(sizeof(char*), 2048);
+		filedes = open("files.txt", O_RDONLY);
+		int i = 0;
+		while (strncmp(argv[i + 5], "{}", 4) != 0)
 		{
-			filesFound[idx] = execCommand[i];
-			idx++;
+			exec[i] = argv[i + 5];
 			i++;
 		}
+		idx = i + 1;
+		char str[PATH_MAX];
+		while (readline(filedes, str))
+		{
+			exec[i] = str;
+			i++;
+		}
+		while (argv[idx + 5] != NULL)
+		{
+			exec[i] = argv[idx + 5];
+			i++;
+			idx++;
+		}
+		close(filedes);
+
 		pid_t p = fork();
 		if (p == 0)
-			execvp(execCommand[0], filesFound);
-		else
+		{
+			execvp(exec[0], exec);
+			printf("Failed to execute %s\n", exec[0]);
+			return 1;
+		}
+		else if (p > 0)
 		{
 			int status;
 			waitpid(p, &status, 0);
 		}
+		else
+			perror("Failed to create process\n");
 	}
-
+	remove("files.txt");
 	return 0;
 }
 
 /**
  * Sets the global argument flags based on the cli
  * arguments of the program
- * 
+ *
  * @param argv the array of strings passed as an argument to main()
  * @return 0 if the parsing was successful, not 0 otherwise
  */
@@ -101,7 +131,6 @@ int parseArgs(char** argv)
 	{
 		permFlag = 1;
 		perm = strtol(argv[3], NULL, OCTAL);
-		printf("perm: %d\n", perm);
 	}
 	else
 	{
@@ -144,7 +173,7 @@ void printUsage()
  * by the path argument, launching a new process
  * for each new directory and scanning each directory's
  * files according to the global argument flags
- * 
+ *
  * @param path the path to the parent directory
  * @return 0 if the directory was successfully read, not 0 otherwise
  */
@@ -158,7 +187,7 @@ int analyzeDirectory(char* path)
 
 	if (dir != NULL)
 	{
-		while (entry = readdir(dir))
+		while ((entry = readdir(dir)))
 		{
 			if (entry->d_type == DT_DIR)
 			{
@@ -167,15 +196,18 @@ int analyzeDirectory(char* path)
 				pid_t p = fork();
 				if (p == 0)
 				{
+					signal(SIGINT, sigint_child_handler);
 					char dirPath[PATH_MAX];
 					sprintf(dirPath, "%s/%s", path, entry->d_name);
-					return analyzeDirectory(dirPath);
+					exit(analyzeDirectory(dirPath));
 				}
-				else
+				else if (p > 0)
 				{
 					pidsSize++;
 					pids[pidsSize - 1] = p;
 				}
+				else
+					perror("Failed to create process");
 			}
 		}
 		closedir(dir);
@@ -200,7 +232,7 @@ int analyzeDirectory(char* path)
 /**
  * Analyzes all the files of a single directory based
  * on the name, type and perm global arguments
- * 
+ *
  * @param path the path to the directory
  */
 void analyzeFiles(char* path)
@@ -212,7 +244,7 @@ void analyzeFiles(char* path)
 
 	if (dir != NULL)
 	{
-		while (entry = readdir(dir))
+		while ((entry = readdir(dir)))
 		{
 			if (nameFlag)
 			{
@@ -259,7 +291,7 @@ void analyzeFiles(char* path)
 /**
  * Processes a single file, based on the print,
  * delete and exec global arguments
- * 
+ *
  * @param path the path to the file
  */
 void processFile(char* path)
@@ -270,10 +302,75 @@ void processFile(char* path)
 		remove(path);
 	else if (execFlag)
 	{
-		char* heapPath = (char*)calloc(sizeof(char*), strlen(path) + 1);
-		strcpy(heapPath, path);
-		filesFound[idx] = heapPath;
-		idx++;
+		filedes = open("files.txt", O_WRONLY | O_APPEND);
+		write(filedes, path, strlen(path) + 1);
+		close(filedes);
 	}
 	return;
+}
+
+/**
+ * Signal handler for SIGINT, to be used on the
+ * starting parent process only. It shows the
+ * prompt and blocks all child processes, and if
+ * it is to continue running the program, it sends
+ * SIGUSR1 to all child processes, signaling them
+ * to resume operations.
+ *
+ * @param signo the signal received by the handler
+ */
+void sigint_parent_handler(int signo)
+{
+	char c;
+  	printf("Are you sure you want to terminate (Y/N)? \n");
+	c = getchar();
+
+	if (c == 'Y'|| c == 'y'){
+		exit(0);
+	}
+	else{
+		kill(0, SIGUSR1);
+	}
+}
+
+/**
+ * Signal handler for SIGINT, to be used on child
+ * processes. It waits until another signal (SIGUSR1)
+ * is received
+ *
+ * @param signo the signal received by the handler
+ */
+void sigint_child_handler(int signo)
+{
+	pause();
+}
+
+/**
+ * Signal handler for SIGUSR1
+ *
+ * @param signo the signal received by the handler
+ */
+void sigusr1_handler(int signo)
+{
+	return;
+}
+
+/**
+ * Reads a null-terminated string from
+ * a file descriptor (taken and adapted 
+ * from practical classes exercises)
+ *
+ *@param fd the file descriptor
+ *@param str pointer to hold the result
+ *
+ *@return the size of the string that was read
+ */
+int readline(int fd, char *str)
+{
+	int n;
+	do 
+	{
+		n = read(fd,str,1);
+	} while (n>0 && *str++ != '\0');
+	return (n>0);
 }
