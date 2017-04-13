@@ -286,14 +286,16 @@ void sigint_handler(int signo)
 
 	char c;
 
-	signal (signo, SIG_IGN)
+	signal (signo, SIG_IGN);
+
   printf("Are you sure you want to terminate (Y/N)? \n");
 	c = getchar();
-	if (c == "Y"|| c == "y"){
-		exit(0)
+
+	if (c == 'Y'|| c == 'y'){
+		exit(0);
 	}
 	else{
-		signal (SIGINT, INThandler);
+		signal (SIGINT, sigint_handler);
 		getchar();
 
 	}
