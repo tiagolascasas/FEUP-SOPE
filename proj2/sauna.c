@@ -6,14 +6,15 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/syscall.h>
 
 #include "request.h"
 
+#define gettid() syscall(SYS_gettid)
 #define MODE 0770
 #define MALE 'M'
 #define FEMALE 'F'
-//#define RAND_GENDER rand() & 1 ? MALE : FEMALE
-
+#define MAX_RETRIES 100
 
 unsigned int numberOfSlots;
 unsigned int freeSlots;
@@ -35,10 +36,9 @@ int logFiledes;
 int entryFiledes;
 int rejectedFiledes;
 
-void* mainThreadFunction(void* arg);
+void mainThreadFunction();
 void* occupiedSlot(void* arg);
 void writeRequestToLog(struct request_t req, char* type);
-
 
 int main(int argc, char** argv)
 {
@@ -80,19 +80,8 @@ int main(int argc, char** argv)
 
 	printf("Connection with generator successfully established\n");
 
-	pthread_t mainThread;
-	if (pthread_create(&mainThread, NULL, mainThreadFunction, NULL) != 0)
-	{
-		perror("Error creating main thread");
-		return 6;
-	}
+	mainThreadFunction();
 
-	pthread_join(mainThread, NULL);
-
-	if (close(rejectedFiledes) != 0)
-		perror("Error closing FIFO /tmp/rejected");
-	if (close(entryFiledes) != 0)
-		perror("Error closing FIFO /tmp/entry");
 	if (close(logFiledes) != 0)
 		perror("Error closing file /tmp/ger.pid");
 
@@ -109,29 +98,29 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-void* mainThreadFunction(void* arg)
+void mainThreadFunction()
 {
 	int readNo;
 	struct request_t req;
 	while ((readNo = read(entryFiledes, &req, sizeof(req))) != -1)
 	{
-		if (read > 0)
+		if (readNo > 0)
 		{
 			writeRequestToLog(req, "RECEIVED");
 			received++;
 			if (req.gender == 'M')
-					receivedMale++;
-				else
-					receivedFemale++;
+				receivedMale++;
+			else
+				receivedFemale++;
 			if (freeSlots == numberOfSlots)
 			{
 				currentGender = req.gender;
 				freeSlots--;
 				pthread_t newOccupiedSlot;
-				if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, req.duration) != 0)
+				if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, &req.duration) != 0)
 				{
-					perror("Error creating new occupied slot tread");
-					return 7;
+					perror("Error creating new occupied slot thread");
+					exit(7);
 				}
 				//pthread_join(newOccupiedSlot , NULL);
 
@@ -147,10 +136,10 @@ void* mainThreadFunction(void* arg)
 				if (freeSlots)
 				{
 					pthread_t newOccupiedSlot;
-					if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, req.duration) != 0)
+					if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, &req) != 0)
 					{
-						perror("Error creating new occupied slot tread");
-						return 7;
+						perror("Error creating new occupied slot thread");
+						exit(8);
 					}
 					//pthread_join(newOccupiedSlot , NULL);
 
@@ -177,21 +166,30 @@ void* mainThreadFunction(void* arg)
 		}
 	}
 
-	return NULL;
+	if (close(rejectedFiledes) != 0)
+		perror("Error closing FIFO /tmp/rejected");
+	if (close(entryFiledes) != 0)
+		perror("Error closing FIFO /tmp/entry");
+	return;
 }
 
 void* occupiedSlot(void* arg)
 {
-	//TODO wait the time (received as arg) and close
+	usleep(((struct request_t*)arg)->duration);
+	writeRequestToLog(*(struct request_t*)arg, "SERVED");
+	// Mutex here
+	freeSlots++;
+	return NULL;
 }
 
 void writeRequestToLog(struct request_t req, char* type)
 {
-	char info[200];
+	char info[300];
 	float currTime = (clock() - startTime) / 1000;
-/*	sprintf(info, "%.2f - %6d - %?????d - %3d: %c - %3d - %s\n",		///////////////////////
-			currTime, getppid(), ?????, req.serial,						///////////////////////
+	pid_t tid = gettid();
+	sprintf(info, "%.2f - %6d - %1lld - %3d: %c - %3d - %s\n",		///////////////////////
+			currTime, getppid(), (long long)tid, req.serial,						///////////////////////
 			req.gender, req.duration, type);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
-		perror("Error writing to file tmp/ger.pid");*/
+		perror("Error writing to file tmp/ger.pid");
 }

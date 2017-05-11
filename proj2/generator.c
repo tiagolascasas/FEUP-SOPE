@@ -13,6 +13,7 @@
 #define MALE 'M'
 #define FEMALE 'F'
 #define RAND_GENDER rand() & 1 ? MALE : FEMALE
+#define MAX_RETRIES 100
 
 unsigned int numberOfRequests;
 unsigned int maxUsage;
@@ -89,10 +90,6 @@ int main(int argc, char** argv)
 	pthread_join(sender, NULL);
 	pthread_join(receiver, NULL);
 
-	if (close(entryFiledes) != 0)
-		perror("Error closing FIFO /tmp/entry");
-	if (close(rejectedFiledes) != 0)
-		perror("Error closing FIFO /tmp/rejected");
 	if (close(logFiledes) != 0)
 		perror("Error closing file /tmp/ger.pid");
 	if (unlink("/tmp/entry") != 0)
@@ -118,7 +115,7 @@ void* senderFunction(void* arg)
 		struct request_t req;
 		req.serial = generated;
 		req.gender = RAND_GENDER;
-		req.duration = maxUsage;
+		req.duration = (rand() % maxUsage) + 1;
 		req.timesRejected = 0;
 		if (write(entryFiledes, &req, sizeof(req)) >= 0)
 		{
@@ -140,10 +137,12 @@ void* receiverFunction(void* arg)
 {
 	int readNo;
 	struct request_t req;
+	int retries = 0;
 	while ((readNo = read(rejectedFiledes, &req, sizeof(req))) != -1)
 	{
-		if (read > 0)
+		if (readNo > 0)
 		{
+			retries = 0;
 			if (req.timesRejected < 3)
 			{
 				writeRequestToLog(req, "REJECTED");
@@ -166,13 +165,25 @@ void* receiverFunction(void* arg)
 					discardedFemale++;
 			}
 		}
+		else if (readNo == 0)
+		{
+			retries++;
+			printf("%d\n", retries);
+		}
+		if (retries >= MAX_RETRIES)
+			break;
 	}
+
+	if (close(entryFiledes) != 0)
+		perror("Error closing FIFO /tmp/entry");
+	if (close(rejectedFiledes) != 0)
+		perror("Error closing FIFO /tmp/rejected");
 	return NULL;
 }
 
 void writeRequestToLog(struct request_t req, char* type)
 {
-	char info[200];
+	char info[300];
 	float currTime = (clock() - startTime) / 1000;
 	sprintf(info, "%.2f - %6d - %3d: %c - %3d - %s\n",
 			currTime, getppid(), req.serial,
