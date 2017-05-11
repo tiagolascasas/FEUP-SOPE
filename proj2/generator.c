@@ -50,24 +50,19 @@ int main(int argc, char** argv)
 
 	srand(time(NULL));
 
+	while((rejectedFiledes = open("/tmp/rejected", O_RDONLY)) < 0);
+
 	if (mkfifo("/tmp/entry", MODE) != 0)
 	{
 		perror("Error creating FIFO /tmp/entry");
 		return 2;
 	}
-			//REMOVE O_NONBLOCK LATER
-	entryFiledes = open("/tmp/entry", O_WRONLY | O_NONBLOCK);
+
+	entryFiledes = open("/tmp/entry", O_WRONLY);
 	if (entryFiledes < 0)
 	{
 		perror("Error opening FIFO /tmp/entry");
-	//	return 3;
-	}
-
-	rejectedFiledes = open("/tmp/rejected", O_RDONLY);
-	if (rejectedFiledes < 0)
-	{
-		perror("Error opening FIFO /tmp/rejected");
-	//	return 4;
+		return 4;
 	}
 
 	logFiledes = open("/tmp/ger.pid", O_WRONLY | O_CREAT, MODE);
@@ -76,6 +71,8 @@ int main(int argc, char** argv)
 		perror("Error opening/creating file /tmp/ger.pid");
 		return 5;
 	}
+
+	printf("Connection to sauna successfully established\n");
 
 	pthread_t sender, receiver;
 	if (pthread_create(&sender, NULL, senderFunction, NULL) != 0)
@@ -94,6 +91,8 @@ int main(int argc, char** argv)
 
 	if (close(entryFiledes) != 0)
 		perror("Error closing FIFO /tmp/entry");
+	if (close(rejectedFiledes) != 0)
+		perror("Error closing FIFO /tmp/rejected");
 	if (close(logFiledes) != 0)
 		perror("Error closing file /tmp/ger.pid");
 	if (unlink("/tmp/entry") != 0)
@@ -105,6 +104,10 @@ int main(int argc, char** argv)
 				rejected, rejectedMale, rejectedFemale);
 	printf("Discarded requests: %d (%d Male, %d Female)\n",
 				discarded, discardedMale, discardedFemale);
+
+	if (unlink("/tmp/rejected") != 0)
+		perror("Error deleting FIFO /tmp/rejected");
+
 	return 0;
 }
 

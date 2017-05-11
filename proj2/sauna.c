@@ -43,7 +43,7 @@ void writeRequestToLog(struct request_t req, char* type);
 int main(int argc, char** argv)
 {
 	startTime = clock();
-	
+
 	if (argc != 2)
 	{
 		printf("Wrong number of arguments provided\n");
@@ -51,11 +51,11 @@ int main(int argc, char** argv)
 		return 1;
 	}
 	sscanf(argv[1], "%u", &numberOfSlots);
-	
-	freeSlots = numberOfSlots;	
+
+	freeSlots = numberOfSlots;
 
 	srand(time(NULL));
-	
+
 	if (mkfifo("/tmp/rejected", MODE) != 0)
 	{
 		perror("Error creating FIFO /tmp/rejected");
@@ -66,23 +66,20 @@ int main(int argc, char** argv)
 	if (rejectedFiledes < 0)
 	{
 		perror("Error opening FIFO /tmp/rejected");
-		return 3;
-	}
-	
-	entryFiledes = open ("/tmp/entry", O_RDONLY);
-	if (entryFiledes < 0)
-	{
-		perror("Error opening FIFO /tmp/entry");
 		return 4;
 	}
-		
-	logFiledes = open("/tmp/ger.pid", O_WRONLY | O_CREAT, MODE);
+
+	while((entryFiledes = open("/tmp/entry", O_RDONLY)) < 0);
+
+	logFiledes = open("/tmp/bal.pid", O_WRONLY | O_CREAT, MODE);
 	if (logFiledes < 0)
 	{
-		perror("Error opening/creating file /tmp/ger.pid");
+		perror("Error opening/creating file /tmp/bal.pid");
 		return 5;
 	}
-	
+
+	printf("Connection with generator successfully established\n");
+
 	pthread_t mainThread;
 	if (pthread_create(&mainThread, NULL, mainThreadFunction, NULL) != 0)
 	{
@@ -91,13 +88,13 @@ int main(int argc, char** argv)
 	}
 
 	pthread_join(mainThread, NULL);
-	
+
 	if (close(rejectedFiledes) != 0)
 		perror("Error closing FIFO /tmp/rejected");
+	if (close(entryFiledes) != 0)
+		perror("Error closing FIFO /tmp/entry");
 	if (close(logFiledes) != 0)
 		perror("Error closing file /tmp/ger.pid");
-	if (unlink("/tmp/rejected") != 0)
-		perror("Error deleting FIFO /tmp/rejected");
 
 	printf("Received requests: %d (%d Male, %d Female)\n",
 					received, receivedMale, receivedFemale);
@@ -105,6 +102,9 @@ int main(int argc, char** argv)
 				rejected, rejectedMale, rejectedFemale);
 	printf("Served requests: %d (%d Male, %d Female)\n",
 				served, servedMale, servedFemale);
+
+	if (unlink("/tmp/rejected") != 0)
+		perror("Error deleting FIFO /tmp/rejected");
 
 	return 0;
 }
@@ -134,7 +134,7 @@ void* mainThreadFunction(void* arg)
 					return 7;
 				}
 				//pthread_join(newOccupiedSlot , NULL);
-								
+
 				writeRequestToLog(req, "SERVED");
 				served++;
 				if (req.gender == 'M')
@@ -153,7 +153,7 @@ void* mainThreadFunction(void* arg)
 						return 7;
 					}
 					//pthread_join(newOccupiedSlot , NULL);
-				
+
 					writeRequestToLog(req, "SERVED");
 					served++;
 					if (req.gender == 'M')
@@ -161,7 +161,7 @@ void* mainThreadFunction(void* arg)
 					else
 						servedFemale++;
 				}
-				else //put in queue and wait for free slot
+				//else //put in queue and wait for free slot
 			}
 			else
 			{
@@ -175,8 +175,8 @@ void* mainThreadFunction(void* arg)
 					perror("Error writing to FIFO tmp/rejected");
 			}
 		}
-	}			
-	
+	}
+
 	return NULL;
 }
 
@@ -189,9 +189,9 @@ void writeRequestToLog(struct request_t req, char* type)
 {
 	char info[200];
 	float currTime = (clock() - startTime) / 1000;
-	sprintf(info, "%.2f - %6d - %?????d - %3d: %c - %3d - %s\n",		///////////////////////
+/*	sprintf(info, "%.2f - %6d - %?????d - %3d: %c - %3d - %s\n",		///////////////////////
 			currTime, getppid(), ?????, req.serial,						///////////////////////
 			req.gender, req.duration, type);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
-		perror("Error writing to file tmp/ger.pid");
+		perror("Error writing to file tmp/ger.pid");*/
 }
