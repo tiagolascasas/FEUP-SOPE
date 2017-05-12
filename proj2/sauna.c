@@ -14,7 +14,7 @@
 #define MODE 0770
 #define MALE 'M'
 #define FEMALE 'F'
-#define MAX_RETRIES 100
+#define MAX_RETRIES 10000
 
 unsigned int numberOfSlots;
 unsigned int freeSlots;
@@ -56,20 +56,9 @@ int main(int argc, char** argv)
 
 	srand(time(NULL));
 
-	if (mkfifo("/tmp/rejected", MODE) != 0)
-	{
-		perror("Error creating FIFO /tmp/rejected");
-		return 2;
-	}
+	while((entryFiledes = open("/tmp/entry", O_RDONLY | O_NONBLOCK)) < 0);
 
-	rejectedFiledes = open("/tmp/rejected", O_WRONLY);
-	if (rejectedFiledes < 0)
-	{
-		perror("Error opening FIFO /tmp/rejected");
-		return 4;
-	}
-
-	while((entryFiledes = open("/tmp/entry", O_RDONLY)) < 0);
+	while((rejectedFiledes = open("/tmp/entry", O_WRONLY | O_NONBLOCK)) < 0);
 
 	logFiledes = open("/tmp/bal.pid", O_WRONLY | O_CREAT, MODE);
 	if (logFiledes < 0)
@@ -92,8 +81,8 @@ int main(int argc, char** argv)
 	printf("Served requests: %d (%d Male, %d Female)\n",
 				served, servedMale, servedFemale);
 
-	if (unlink("/tmp/rejected") != 0)
-		perror("Error deleting FIFO /tmp/rejected");
+	if (unlink("/tmp/entry") != 0)
+		perror("Error deleting FIFO /tmp/entry");
 
 	return 0;
 }
@@ -102,10 +91,12 @@ void mainThreadFunction()
 {
 	int readNo;
 	struct request_t req;
-	while ((readNo = read(entryFiledes, &req, sizeof(req))) != -1)
+	int retries = 0;
+	while ((readNo = read(entryFiledes, &req, sizeof(req))))
 	{
 		if (readNo > 0)
 		{
+			retries = 0;
 			writeRequestToLog(req, "RECEIVED");
 			received++;
 			if (req.gender == 'M')
@@ -164,6 +155,14 @@ void mainThreadFunction()
 					perror("Error writing to FIFO tmp/rejected");
 			}
 		}
+		else if (readNo < 0)
+		{
+			retries++;
+			if (retries >= MAX_RETRIES)
+				break;
+		}
+		else
+			break;
 	}
 
 	if (close(rejectedFiledes) != 0)

@@ -13,7 +13,7 @@
 #define MALE 'M'
 #define FEMALE 'F'
 #define RAND_GENDER rand() & 1 ? MALE : FEMALE
-#define MAX_RETRIES 100
+#define MAX_RETRIES 10000
 
 unsigned int numberOfRequests;
 unsigned int maxUsage;
@@ -51,20 +51,21 @@ int main(int argc, char** argv)
 
 	srand(time(NULL));
 
-	while((rejectedFiledes = open("/tmp/rejected", O_RDONLY)) < 0);
-
 	if (mkfifo("/tmp/entry", MODE) != 0)
 	{
 		perror("Error creating FIFO /tmp/entry");
 		return 2;
 	}
 
-	entryFiledes = open("/tmp/entry", O_WRONLY);
-	if (entryFiledes < 0)
+	if (mkfifo("/tmp/rejected", MODE) != 0)
 	{
-		perror("Error opening FIFO /tmp/entry");
-		return 4;
+		perror("Error creating FIFO /tmp/rejected");
+		return 2;
 	}
+
+	while((entryFiledes = open("/tmp/entry", O_WRONLY)) < 0);
+
+	while((rejectedFiledes = open("/tmp/entry", O_RDONLY | O_NONBLOCK)) < 0);
 
 	logFiledes = open("/tmp/ger.pid", O_WRONLY | O_CREAT, MODE);
 	if (logFiledes < 0)
@@ -90,17 +91,15 @@ int main(int argc, char** argv)
 	pthread_join(sender, NULL);
 	pthread_join(receiver, NULL);
 
-	if (close(logFiledes) != 0)
-		perror("Error closing file /tmp/ger.pid");
-	if (unlink("/tmp/entry") != 0)
-		perror("Error deleting FIFO /tmp/entry");
-
 	printf("Generated requests: %d (%d Male, %d Female)\n",
 					generated, generatedMale, generatedFemale);
 	printf("Rejected requests:  %d (%d Male, %d Female)\n",
 				rejected, rejectedMale, rejectedFemale);
 	printf("Discarded requests: %d (%d Male, %d Female)\n",
 				discarded, discardedMale, discardedFemale);
+
+	if (close(logFiledes) != 0)
+		perror("Error closing file /tmp/ger.pid");
 
 	if (unlink("/tmp/rejected") != 0)
 		perror("Error deleting FIFO /tmp/rejected");
@@ -122,7 +121,7 @@ void* senderFunction(void* arg)
 			writeRequestToLog(req, "REQUEST");
 			numberOfRequests--;
 			generated++;
-			if (req.gender == 'M')
+			if (req.gender == MALE)
 				generatedMale++;
 			else
 				generatedFemale++;
@@ -138,7 +137,7 @@ void* receiverFunction(void* arg)
 	int readNo;
 	struct request_t req;
 	int retries = 0;
-	while ((readNo = read(rejectedFiledes, &req, sizeof(req))) != -1)
+	while ((readNo = read(rejectedFiledes, &req, sizeof(req))))
 	{
 		if (readNo > 0)
 		{
@@ -148,7 +147,7 @@ void* receiverFunction(void* arg)
 				writeRequestToLog(req, "REJECTED");
 				req.timesRejected++;
 				rejected++;
-				if (req.gender == 'M')
+				if (req.gender == MALE)
 					rejectedMale++;
 				else
 					rejectedFemale++;
@@ -159,18 +158,19 @@ void* receiverFunction(void* arg)
 			{
 				writeRequestToLog(req, "DISCARDED");
 				discarded++;
-				if (req.gender == 'M')
+				if (req.gender == MALE)
 					discardedMale++;
 				else
 					discardedFemale++;
 			}
 		}
-		else if (readNo == 0)
+		else if (readNo < 0)
 		{
 			retries++;
-			printf("%d\n", retries);
+			if (retries >= MAX_RETRIES)
+				break;
 		}
-		if (retries >= MAX_RETRIES)
+		else
 			break;
 	}
 
