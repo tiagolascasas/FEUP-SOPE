@@ -112,8 +112,8 @@ int main(int argc, char** argv)
 }
 
 /**
- * Reads all requests from the entry FIFO and 
- * handles them appropriately, launching threads 
+ * Reads all requests from the entry FIFO and
+ * handles them appropriately, launching threads
  * and joining them when the  FIFO closes.
  */
 void mainThreadFunction()
@@ -223,8 +223,8 @@ void writeRequestToLog(struct request_t req, char* type)
 	char info[300];
 	float currTime = getTimeMilliseconds(startTime);
 	pid_t tid = gettid();
-	sprintf(info, "%.2f - %6d - %1lld - %3d: %c - %3d - %s\n",		///////////////////////
-			currTime, getpid(), (long long)tid, req.serial,						///////////////////////
+	sprintf(info, "%.2f - %6d - %1lld - %3d: %c - %3d - %s\n",
+			currTime, getpid(), (long long)tid, req.serial,
 			req.gender, req.duration, type);
 	pthread_mutex_lock(&logMux);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
