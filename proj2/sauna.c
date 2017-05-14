@@ -14,7 +14,8 @@
 #define MODE 0770
 #define MALE 'M'
 #define FEMALE 'F'
-#define MAX_RETRIES 10000
+#define MAX_RETRIES 100000
+#define MICRO_TO_MILLISECONDS 1000
 
 unsigned int numberOfSlots;
 unsigned int freeSlots;
@@ -35,6 +36,11 @@ clock_t startTime;
 int logFiledes;
 int entryFiledes;
 int rejectedFiledes;
+
+pthread_mutex_t mux = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+
+pthread_mutex_t logMux = PTHREAD_MUTEX_INITIALIZER;
 
 void mainThreadFunction();
 void* occupiedSlot(void* arg);
@@ -60,6 +66,11 @@ int main(int argc, char** argv)
 
 	while((rejectedFiledes = open("/tmp/entry", O_WRONLY | O_NONBLOCK)) < 0);
 
+	if (access("/tmp/bal.pid", F_OK) != -1)
+	{
+		if (unlink("/tmp/bal.pid") != 0)
+			perror("Error deleting preexistent file /tmp/bal.pid");
+	}
 	logFiledes = open("/tmp/bal.pid", O_WRONLY | O_CREAT, MODE);
 	if (logFiledes < 0)
 	{
@@ -99,16 +110,19 @@ void mainThreadFunction()
 			retries = 0;
 			writeRequestToLog(req, "RECEIVED");
 			received++;
-			if (req.gender == 'M')
+			if (req.gender == MALE)
 				receivedMale++;
 			else
 				receivedFemale++;
+
 			if (freeSlots == numberOfSlots)
 			{
 				currentGender = req.gender;
+				pthread_mutex_lock(&mux);
 				freeSlots--;
+				pthread_mutex_unlock(&mux);
 				pthread_t newOccupiedSlot;
-				if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, &req.duration) != 0)
+				if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, &req) != 0)
 				{
 					perror("Error creating new occupied slot thread");
 					exit(7);
@@ -117,37 +131,38 @@ void mainThreadFunction()
 
 				writeRequestToLog(req, "SERVED");
 				served++;
-				if (req.gender == 'M')
+				if (req.gender == MALE)
 					servedMale++;
 				else
 					servedFemale++;
 			}
 			else if (req.gender == currentGender)
 			{
-				if (freeSlots)
-				{
-					pthread_t newOccupiedSlot;
-					if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, &req) != 0)
-					{
-						perror("Error creating new occupied slot thread");
-						exit(8);
-					}
-					//pthread_join(newOccupiedSlot , NULL);
+			//	if (freeSlots)
+				pthread_mutex_lock(&mux);
+				while (freeSlots == 0)
+					pthread_cond_wait(&cond, &mux);
 
-					writeRequestToLog(req, "SERVED");
-					served++;
-					if (req.gender == 'M')
-						servedMale++;
-					else
-						servedFemale++;
+				pthread_t newOccupiedSlot;
+				if (pthread_create(&newOccupiedSlot, NULL, occupiedSlot, &req) != 0)
+				{
+					perror("Error creating new occupied slot thread");
+					exit(8);
 				}
-				//else //put in queue and wait for free slot
+				//pthread_join(newOccupiedSlot , NULL);
+				writeRequestToLog(req, "SERVED");
+				served++;
+				if (req.gender == MALE)
+					servedMale++;
+				else
+					servedFemale++;
+				pthread_mutex_unlock(&mux);
 			}
 			else
 			{
 				writeRequestToLog(req, "REJECTED");
 				rejected++;
-				if (req.gender == 'M')
+				if (req.gender == MALE)
 					rejectedMale++;
 				else
 					rejectedFemale++;
@@ -174,10 +189,11 @@ void mainThreadFunction()
 
 void* occupiedSlot(void* arg)
 {
-	usleep(((struct request_t*)arg)->duration);
+	usleep(((struct request_t*)arg)->duration * MICRO_TO_MILLISECONDS);
 	writeRequestToLog(*(struct request_t*)arg, "SERVED");
-	// Mutex here
+	pthread_mutex_lock(&mux);
 	freeSlots++;
+	pthread_mutex_unlock(&mux);
 	return NULL;
 }
 
@@ -189,6 +205,8 @@ void writeRequestToLog(struct request_t req, char* type)
 	sprintf(info, "%.2f - %6d - %1lld - %3d: %c - %3d - %s\n",		///////////////////////
 			currTime, getppid(), (long long)tid, req.serial,						///////////////////////
 			req.gender, req.duration, type);
+	pthread_mutex_lock(&logMux);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
 		perror("Error writing to file tmp/ger.pid");
+	pthread_mutex_unlock(&logMux);
 }

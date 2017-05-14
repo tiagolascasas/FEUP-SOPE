@@ -13,7 +13,7 @@
 #define MALE 'M'
 #define FEMALE 'F'
 #define RAND_GENDER rand() & 1 ? MALE : FEMALE
-#define MAX_RETRIES 10000
+#define MAX_RETRIES 1000
 
 unsigned int numberOfRequests;
 unsigned int maxUsage;
@@ -33,6 +33,8 @@ int logFiledes;
 int entryFiledes;
 int rejectedFiledes;
 
+pthread_mutex_t logMux = PTHREAD_MUTEX_INITIALIZER;
+
 void* senderFunction(void* arg);
 void* receiverFunction(void* arg);
 void writeRequestToLog(struct request_t req, char* type);
@@ -51,12 +53,22 @@ int main(int argc, char** argv)
 
 	srand(time(NULL));
 
+	if (access("/tmp/entry", F_OK) != -1)
+	{
+		if (unlink("/tmp/entry") != 0)
+			perror("Error deleting preexistent FIFO /tmp/entry");
+	}
 	if (mkfifo("/tmp/entry", MODE) != 0)
 	{
 		perror("Error creating FIFO /tmp/entry");
 		return 2;
 	}
 
+	if (access("/tmp/rejected", F_OK) != -1)
+	{
+		if (unlink("/tmp/rejected") != 0)
+			perror("Error deleting preexistent FIFO /tmp/rejected");
+	}
 	if (mkfifo("/tmp/rejected", MODE) != 0)
 	{
 		perror("Error creating FIFO /tmp/rejected");
@@ -67,6 +79,11 @@ int main(int argc, char** argv)
 
 	while((rejectedFiledes = open("/tmp/entry", O_RDONLY | O_NONBLOCK)) < 0);
 
+	if (access("/tmp/ger.pid", F_OK) != -1)
+	{
+		if (unlink("/tmp/ger.pid") != 0)
+			perror("Error deleting preexistent file /tmp/ger.pid");
+	}
 	logFiledes = open("/tmp/ger.pid", O_WRONLY | O_CREAT, MODE);
 	if (logFiledes < 0)
 	{
@@ -169,6 +186,7 @@ void* receiverFunction(void* arg)
 			retries++;
 			if (retries >= MAX_RETRIES)
 				break;
+			usleep(maxUsage * 10);
 		}
 		else
 			break;
@@ -188,6 +206,8 @@ void writeRequestToLog(struct request_t req, char* type)
 	sprintf(info, "%.2f - %6d - %3d: %c - %3d - %s\n",
 			currTime, getppid(), req.serial,
 			req.gender, req.duration, type);
+	pthread_mutex_lock(&logMux);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
 		perror("Error writing to file tmp/ger.pid");
+	pthread_mutex_unlock(&logMux);
 }
