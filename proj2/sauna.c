@@ -64,26 +64,26 @@ int main(int argc, char** argv)
 
 	while((entryFiledes = open("/tmp/entry", O_RDONLY | O_NONBLOCK)) < 0);
 
-	while((rejectedFiledes = open("/tmp/entry", O_WRONLY | O_NONBLOCK)) < 0);
+	while((rejectedFiledes = open("/tmp/rejected", O_WRONLY | O_NONBLOCK)) < 0);
 
-	if (access("/tmp/bal.pid", F_OK) != -1)
+	char logName[30];
+	sprintf(logName, "/tmp/bal.%d", getpid());
+
+	if (access(logName, F_OK) != -1)
 	{
-		if (unlink("/tmp/bal.pid") != 0)
-			perror("Error deleting preexistent file /tmp/bal.pid");
+		if (unlink(logName) != 0)
+			perror("Error deleting preexistent log file");
 	}
-	logFiledes = open("/tmp/bal.pid", O_WRONLY | O_CREAT, MODE);
+	logFiledes = open(logName, O_WRONLY | O_CREAT, MODE);
 	if (logFiledes < 0)
 	{
-		perror("Error opening/creating file /tmp/bal.pid");
+		perror("Error opening/creating log file");
 		return 5;
 	}
 
 	printf("Connection with generator successfully established\n");
 
 	mainThreadFunction();
-
-	if (close(logFiledes) != 0)
-		perror("Error closing file /tmp/ger.pid");
 
 	printf("Received requests: %d (%d Male, %d Female)\n",
 					received, receivedMale, receivedFemale);
@@ -92,8 +92,14 @@ int main(int argc, char** argv)
 	printf("Served requests: %d (%d Male, %d Female)\n",
 				served, servedMale, servedFemale);
 
+	if (close(logFiledes) != 0)
+		perror("Error closing log file");
+
 	if (unlink("/tmp/entry") != 0)
 		perror("Error deleting FIFO /tmp/entry");
+
+	if (unlink("/tmp/rejected") != 0)
+		perror("Error deleting FIFO /tmp/rejected");
 
 	return 0;
 }
@@ -102,12 +108,10 @@ void mainThreadFunction()
 {
 	int readNo;
 	struct request_t req;
-	int retries = 0;
 	while ((readNo = read(entryFiledes, &req, sizeof(req))))
 	{
 		if (readNo > 0)
 		{
-			retries = 0;
 			writeRequestToLog(req, "RECEIVED");
 			received++;
 			if (req.gender == MALE)
@@ -170,13 +174,7 @@ void mainThreadFunction()
 					perror("Error writing to FIFO tmp/rejected");
 			}
 		}
-		else if (readNo < 0)
-		{
-			retries++;
-			if (retries >= MAX_RETRIES)
-				break;
-		}
-		else
+		else if (readNo == 0)
 			break;
 	}
 
@@ -203,10 +201,10 @@ void writeRequestToLog(struct request_t req, char* type)
 	float currTime = (clock() - startTime) / 1000;
 	pid_t tid = gettid();
 	sprintf(info, "%.2f - %6d - %1lld - %3d: %c - %3d - %s\n",		///////////////////////
-			currTime, getppid(), (long long)tid, req.serial,						///////////////////////
+			currTime, getpid(), (long long)tid, req.serial,						///////////////////////
 			req.gender, req.duration, type);
 	pthread_mutex_lock(&logMux);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
-		perror("Error writing to file tmp/ger.pid");
+		perror("Error writing to log file");
 	pthread_mutex_unlock(&logMux);
 }

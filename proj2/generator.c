@@ -77,17 +77,20 @@ int main(int argc, char** argv)
 
 	while((entryFiledes = open("/tmp/entry", O_WRONLY)) < 0);
 
-	while((rejectedFiledes = open("/tmp/entry", O_RDONLY | O_NONBLOCK)) < 0);
+	while((rejectedFiledes = open("/tmp/rejected", O_RDONLY | O_NONBLOCK)) < 0);
 
-	if (access("/tmp/ger.pid", F_OK) != -1)
+	char logName[30];
+	sprintf(logName, "/tmp/ger.%d", getpid());
+
+	if (access(logName, F_OK) != -1)
 	{
-		if (unlink("/tmp/ger.pid") != 0)
-			perror("Error deleting preexistent file /tmp/ger.pid");
+		if (unlink(logName) != 0)
+			perror("Error deleting preexistent log file");
 	}
-	logFiledes = open("/tmp/ger.pid", O_WRONLY | O_CREAT, MODE);
+	logFiledes = open(logName, O_WRONLY | O_CREAT, MODE);
 	if (logFiledes < 0)
 	{
-		perror("Error opening/creating file /tmp/ger.pid");
+		perror("Error opening/creating log file");
 		return 5;
 	}
 
@@ -116,10 +119,7 @@ int main(int argc, char** argv)
 				discarded, discardedMale, discardedFemale);
 
 	if (close(logFiledes) != 0)
-		perror("Error closing file /tmp/ger.pid");
-
-	if (unlink("/tmp/rejected") != 0)
-		perror("Error deleting FIFO /tmp/rejected");
+		perror("Error closing log file");
 
 	return 0;
 }
@@ -144,7 +144,7 @@ void* senderFunction(void* arg)
 				generatedFemale++;
 		}
 		else
-			perror("Error writing to FIFO tmp/entry");
+			perror("Error writing to FIFO /tmp/entry");
 	}
 	return NULL;
 }
@@ -204,10 +204,10 @@ void writeRequestToLog(struct request_t req, char* type)
 	char info[300];
 	float currTime = (clock() - startTime) / 1000;
 	sprintf(info, "%.2f - %6d - %3d: %c - %3d - %s\n",
-			currTime, getppid(), req.serial,
+			currTime, getpid(), req.serial,
 			req.gender, req.duration, type);
 	pthread_mutex_lock(&logMux);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
-		perror("Error writing to file tmp/ger.pid");
+		perror("Error writing tolog file");
 	pthread_mutex_unlock(&logMux);
 }
