@@ -249,6 +249,11 @@ void registerThread(pthread_t* thr)
 	}
 	nThreads *= 2;
 	threads = (pthread_t**)realloc(threads, nThreads);
+	if (threads == NULL)
+	{
+		perror("realloc() failed on function registerThread()");
+		exit(9);
+	}
 	threads[i] = thr;
 	return;
 }
@@ -263,7 +268,10 @@ void joinAllThreads()
 	for (i = 0; i < nThreads; i++)
 	{
 		if (threads[i] != NULL)
-			pthread_join(*threads[i], NULL);
+		{
+			if (pthread_join(*threads[i], NULL) != 0)
+				perror("Error joining a thread");
+		}
 	}
 	return;
 }
