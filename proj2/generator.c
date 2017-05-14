@@ -230,7 +230,7 @@ void writeRequestToLog(struct request_t req, char* type)
 			currTime, getpid(), req.serial,
 			req.gender, req.duration, type);
 	pthread_mutex_lock(&logMux);
-	if (write(logFiledes, info, strlen(info) + 1) <= 0)
+	if (write(logFiledes, info, strlen(info)) <= 0)
 		perror("Error writing to log file");
 	pthread_mutex_unlock(&logMux);
 }

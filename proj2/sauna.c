@@ -94,9 +94,9 @@ int main(int argc, char** argv)
 
 	printf("Received requests: %d (%d Male, %d Female)\n",
 					received, receivedMale, receivedFemale);
-	printf("Rejected requests:  %d (%d Male, %d Female)\n",
+	printf("Rejected requests: %d (%d Male, %d Female)\n",
 				rejected, rejectedMale, rejectedFemale);
-	printf("Served requests: %d (%d Male, %d Female)\n",
+	printf("Served requests:   %d (%d Male, %d Female)\n",
 				served, servedMale, servedFemale);
 
 	if (close(logFiledes) != 0)
@@ -205,7 +205,6 @@ void mainThreadFunction()
 void* occupiedSlot(void* arg)
 {
 	usleep(((struct request_t*)arg)->duration * MICRO_TO_MILLISECONDS);
-	writeRequestToLog(*(struct request_t*)arg, "SERVED");
 	pthread_mutex_lock(&mux);
 	freeSlots++;
 	pthread_mutex_unlock(&mux);
@@ -227,7 +226,7 @@ void writeRequestToLog(struct request_t req, char* type)
 			currTime, getpid(), (long long)tid, req.serial,
 			req.gender, req.duration, type);
 	pthread_mutex_lock(&logMux);
-	if (write(logFiledes, info, strlen(info) + 1) <= 0)
+	if (write(logFiledes, info, strlen(info)) <= 0)
 		perror("Error writing to log file");
 	pthread_mutex_unlock(&logMux);
 }
