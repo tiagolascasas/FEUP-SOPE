@@ -7,12 +7,11 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/syscall.h>
+#include <time.h>
 
 #include "request.h"
 
 #define gettid() syscall(SYS_gettid)
-#define MODE 0770
-#define MICRO_TO_MILLISECONDS 1000
 #define DEFAULT_THREADS 1000
 
 unsigned int numberOfSlots;
@@ -29,7 +28,7 @@ unsigned int servedFemale = 0;
 
 char currentGender;
 
-clock_t startTime;
+long startTime;
 
 int logFiledes;
 int entryFiledes;
@@ -46,10 +45,13 @@ void* occupiedSlot(void* arg);
 void writeRequestToLog(struct request_t req, char* type);
 void registerThread(pthread_t* thr);
 void joinAllThreads();
+float getTimeMilliseconds();
 
 int main(int argc, char** argv)
 {
-	startTime = clock();
+	struct timespec tm;
+	timespec_get(&tm, TIME_UTC);
+	startTime = tm.tv_nsec + tm.tv_sec * 1e9;
 
 	if (argc != 2)
 	{
@@ -109,6 +111,11 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+/**
+ * Reads all requests from the entry FIFO and 
+ * handles them appropriately, launching threads 
+ * and joining them when the  FIFO closes.
+ */
 void mainThreadFunction()
 {
 	int readNo;
@@ -188,6 +195,13 @@ void mainThreadFunction()
 	return;
 }
 
+/**
+ * This function serves as a body to a thread, and it
+ * simulates the time spent in the sauna by a given request,
+ * "sleeping" during the duration of that request and then returning
+ * @param arg the request to wait upon
+ * @return NULL
+ */
 void* occupiedSlot(void* arg)
 {
 	usleep(((struct request_t*)arg)->duration * MICRO_TO_MILLISECONDS);
@@ -198,10 +212,16 @@ void* occupiedSlot(void* arg)
 	return NULL;
 }
 
+/**
+ * Writes a request to the log in the format
+ * showcased in the project guideline.
+ * @param req the request to register
+ * @param type the type of entry ("Served", "Rejected" or "Received")
+ */
 void writeRequestToLog(struct request_t req, char* type)
 {
 	char info[300];
-	float currTime = (clock() - startTime) / MICRO_TO_MILLISECONDS;
+	float currTime = getTimeMilliseconds(startTime);
 	pid_t tid = gettid();
 	sprintf(info, "%.2f - %6d - %1lld - %3d: %c - %3d - %s\n",		///////////////////////
 			currTime, getpid(), (long long)tid, req.serial,						///////////////////////
@@ -212,6 +232,11 @@ void writeRequestToLog(struct request_t req, char* type)
 	pthread_mutex_unlock(&logMux);
 }
 
+/**
+ * Registers a pthread_t in an array, expanding
+ * that array if it is full.
+ * @param thr the thread to register
+ */
 void registerThread(pthread_t* thr)
 {
 	int i;
@@ -229,6 +254,10 @@ void registerThread(pthread_t* thr)
 	return;
 }
 
+/**
+ * Goes through the array of thread descriptors
+ * and joins them all.
+ */
 void joinAllThreads()
 {
 	int i;

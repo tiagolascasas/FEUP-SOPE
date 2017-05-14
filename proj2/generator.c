@@ -6,13 +6,12 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 
 #include "request.h"
 
-#define MODE 0770
 #define RAND_GENDER rand() & 1 ? MALE : FEMALE
 #define MAX_RETRIES 100000
-#define MICRO_TO_MILLISECONDS 1000
 
 unsigned int numberOfRequests;
 unsigned int maxUsage;
@@ -26,7 +25,7 @@ unsigned int discarded = 0;
 unsigned int discardedMale = 0;
 unsigned int discardedFemale = 0;
 
-clock_t startTime;
+long startTime;
 
 int logFiledes;
 int entryFiledes;
@@ -37,10 +36,13 @@ pthread_mutex_t logMux = PTHREAD_MUTEX_INITIALIZER;
 void* senderFunction(void* arg);
 void* receiverFunction(void* arg);
 void writeRequestToLog(struct request_t req, char* type);
+float getTimeMilliseconds();
 
 int main(int argc, char** argv)
 {
-	startTime = clock();
+	struct timespec tm;
+	timespec_get(&tm, TIME_UTC);
+	startTime = tm.tv_nsec + tm.tv_sec * 1e9;
 
 	if (argc != 3)
 	{
@@ -123,6 +125,14 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+/**
+ * Generates a number of requests specified on the
+ * global variable numberOfRequests and sends them
+ * to the /tmp/entry FIFO. It serves as the entry
+ * point of a thread.
+ * @param arg unused
+ * @return NULL
+ */
 void* senderFunction(void* arg)
 {
 	while (numberOfRequests)
@@ -148,6 +158,15 @@ void* senderFunction(void* arg)
 	return NULL;
 }
 
+/**
+ * Reads the rejected requests FIFO, and sends those
+ * requests back into the entry FIFO if their number
+ * of rejections is inferior to 3. After a certain time
+ * without reading anything, it closes the FIFO. It serves
+ * as the entry point for a thread.
+ * @param arg unused
+ * @return NULL
+ */
 void* receiverFunction(void* arg)
 {
 	int readNo;
@@ -197,15 +216,21 @@ void* receiverFunction(void* arg)
 	return NULL;
 }
 
+/**
+ * Writes a request to the log in the format
+ * showcased in the project guideline.
+ * @param req the request to register
+ * @param type the type of entry ("REQUEST", "REJECTED" or "DISCARDED")
+ */
 void writeRequestToLog(struct request_t req, char* type)
 {
 	char info[300];
-	float currTime = (clock() - startTime) / MICRO_TO_MILLISECONDS;
+	float currTime = getTimeMilliseconds(startTime);
 	sprintf(info, "%.2f - %6d - %3d: %c - %3d - %s\n",
 			currTime, getpid(), req.serial,
 			req.gender, req.duration, type);
 	pthread_mutex_lock(&logMux);
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
-		perror("Error writing tolog file");
+		perror("Error writing to log file");
 	pthread_mutex_unlock(&logMux);
 }
