@@ -10,10 +10,9 @@
 #include "request.h"
 
 #define MODE 0770
-#define MALE 'M'
-#define FEMALE 'F'
 #define RAND_GENDER rand() & 1 ? MALE : FEMALE
-#define MAX_RETRIES 1000
+#define MAX_RETRIES 100000
+#define MICRO_TO_MILLISECONDS 1000
 
 unsigned int numberOfRequests;
 unsigned int maxUsage;
@@ -186,7 +185,6 @@ void* receiverFunction(void* arg)
 			retries++;
 			if (retries >= MAX_RETRIES)
 				break;
-			usleep(maxUsage * 10);
 		}
 		else
 			break;
@@ -202,7 +200,7 @@ void* receiverFunction(void* arg)
 void writeRequestToLog(struct request_t req, char* type)
 {
 	char info[300];
-	float currTime = (clock() - startTime) / 1000;
+	float currTime = (clock() - startTime) / MICRO_TO_MILLISECONDS;
 	sprintf(info, "%.2f - %6d - %3d: %c - %3d - %s\n",
 			currTime, getpid(), req.serial,
 			req.gender, req.duration, type);

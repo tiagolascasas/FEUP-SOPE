@@ -12,10 +12,8 @@
 
 #define gettid() syscall(SYS_gettid)
 #define MODE 0770
-#define MALE 'M'
-#define FEMALE 'F'
-#define MAX_RETRIES 100000
 #define MICRO_TO_MILLISECONDS 1000
+#define DEFAULT_THREADS 1000
 
 unsigned int numberOfSlots;
 unsigned int freeSlots;
@@ -39,12 +37,15 @@ int rejectedFiledes;
 
 pthread_mutex_t mux = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-
 pthread_mutex_t logMux = PTHREAD_MUTEX_INITIALIZER;
+int nThreads = DEFAULT_THREADS;
+pthread_t** threads;
 
 void mainThreadFunction();
 void* occupiedSlot(void* arg);
 void writeRequestToLog(struct request_t req, char* type);
+void registerThread(pthread_t* thr);
+void joinAllThreads();
 
 int main(int argc, char** argv)
 {
@@ -61,6 +62,8 @@ int main(int argc, char** argv)
 	freeSlots = numberOfSlots;
 
 	srand(time(NULL));
+
+	threads = (pthread_t**)calloc(sizeof(pthread_t*), DEFAULT_THREADS);
 
 	while((entryFiledes = open("/tmp/entry", O_RDONLY | O_NONBLOCK)) < 0);
 
@@ -84,6 +87,8 @@ int main(int argc, char** argv)
 	printf("Connection with generator successfully established\n");
 
 	mainThreadFunction();
+
+	joinAllThreads();
 
 	printf("Received requests: %d (%d Male, %d Female)\n",
 					received, receivedMale, receivedFemale);
@@ -131,7 +136,7 @@ void mainThreadFunction()
 					perror("Error creating new occupied slot thread");
 					exit(7);
 				}
-				//pthread_join(newOccupiedSlot , NULL);
+				registerThread(&newOccupiedSlot);
 
 				writeRequestToLog(req, "SERVED");
 				served++;
@@ -142,7 +147,6 @@ void mainThreadFunction()
 			}
 			else if (req.gender == currentGender)
 			{
-			//	if (freeSlots)
 				pthread_mutex_lock(&mux);
 				while (freeSlots == 0)
 					pthread_cond_wait(&cond, &mux);
@@ -153,7 +157,6 @@ void mainThreadFunction()
 					perror("Error creating new occupied slot thread");
 					exit(8);
 				}
-				//pthread_join(newOccupiedSlot , NULL);
 				writeRequestToLog(req, "SERVED");
 				served++;
 				if (req.gender == MALE)
@@ -198,7 +201,7 @@ void* occupiedSlot(void* arg)
 void writeRequestToLog(struct request_t req, char* type)
 {
 	char info[300];
-	float currTime = (clock() - startTime) / 1000;
+	float currTime = (clock() - startTime) / MICRO_TO_MILLISECONDS;
 	pid_t tid = gettid();
 	sprintf(info, "%.2f - %6d - %1lld - %3d: %c - %3d - %s\n",		///////////////////////
 			currTime, getpid(), (long long)tid, req.serial,						///////////////////////
@@ -207,4 +210,32 @@ void writeRequestToLog(struct request_t req, char* type)
 	if (write(logFiledes, info, strlen(info) + 1) <= 0)
 		perror("Error writing to log file");
 	pthread_mutex_unlock(&logMux);
+}
+
+void registerThread(pthread_t* thr)
+{
+	int i;
+	for (i = 0; i < nThreads; i++)
+	{
+		if (threads[i] == NULL)
+		{
+			threads[i] = thr;
+			return;
+		}
+	}
+	nThreads *= 2;
+	threads = (pthread_t**)realloc(threads, nThreads);
+	threads[i] = thr;
+	return;
+}
+
+void joinAllThreads()
+{
+	int i;
+	for (i = 0; i < nThreads; i++)
+	{
+		if (threads[i] != NULL)
+			pthread_join(*threads[i], NULL);
+	}
+	return;
 }
